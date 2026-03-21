@@ -1,0 +1,35 @@
+(2 pkt) Implementacja proceduralnego generatora planszy, który tworzy pasy ruchu (droga, rzeka, bezpieczny teren) z kontrolą poziomu trudności i ograniczeniami (np. brak dwóch rzek pod rząd).
+DONE
+
+(2 pkt) Implementacja systemu komponentowego dla obiektów gry (np. komponenty: ruch, kolizja, renderowanie).
+DONE
+
+(2 pkt) Implementacja systemu symulacji ruchu przeszkód z różnymi parametrami (prędkość, kierunek, spawn rate).
+DONE
+
+(2 pkt) Implementacja systemu kolizji oraz obsługi różnych typów kolizji.
+DONE
+
+(2 pkt) Implementacja systemu zarządzania światem gry (ładowanie i usuwanie fragmentów mapy w zależności od pozycji gracza).
+DONE
+
+(2 pkt) Implementacja skalowania trudności w czasie gry.
+DONE
+
+(1 pkt) Implementacja systemu zdarzeń (event system) między obiektami gry - po prostu logger, który wypisuje co aktualnie się dzieje.
+DONE
+
+(1 pkt) Implementacja zapisywania stanu gry.
+
+
+(1 pkt) Implementacja debug mode (np. wizualizacja hitboxów lub pasów ruchu).
+DONE
+
+(+3 pkt) Implementacja algorytmu generowania planszy gwarantującego przechodniość (gracz zawsze może przejść).
+
+
+(+3 pkt) Implementacja systemu replay (nagrywanie i odtwarzanie ruchów gracza).
+
+
+(+4 pkt) Implementacja AI gracza, który próbuje przejść jak najdalej.
+DONE
