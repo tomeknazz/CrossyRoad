@@ -1,4 +1,4 @@
-import time
+from libs.libs import *
 
 
 class Logger:

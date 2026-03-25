@@ -20,16 +20,16 @@ DONE
 DONE
 
 (1 pkt) Implementacja zapisywania stanu gry.
-
+DONE
 
 (1 pkt) Implementacja debug mode (np. wizualizacja hitboxów lub pasów ruchu).
 DONE
 
 (+3 pkt) Implementacja algorytmu generowania planszy gwarantującego przechodniość (gracz zawsze może przejść).
-
+ALMOST DONE
 
 (+3 pkt) Implementacja systemu replay (nagrywanie i odtwarzanie ruchów gracza).
-
+DONE
 
 (+4 pkt) Implementacja AI gracza, który próbuje przejść jak najdalej.
 DONE
