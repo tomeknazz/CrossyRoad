@@ -1,9 +1,9 @@
-from obstacles.car import Car
-from obstacles.tree import Tree
-from obstacles.terrain import TerrainLane
-from obstacles.log import Log
-from obstacles.lilypad import Lilypad
 from libs.libs import *
+from obstacles.car import Car
+from obstacles.lilypad import Lilypad
+from obstacles.log import Log
+from obstacles.terrain import TerrainLane
+from obstacles.tree import Tree
 
 
 class Player(QGraphicsPixmapItem):
@@ -79,6 +79,7 @@ class GameWindow(QGraphicsView):
 
         # Śledzi, na jakiej wysokości (Y) wygenerowaliśmy ostatni pas mapy
         self.highest_generated_y = CELL_SIZE * 2
+        self.safe_x = (SCENE_WIDTH // 2) // CELL_SIZE * CELL_SIZE
 
         self.consecutive_rivers = 0
         self.max_consecutive_rivers = 3
@@ -102,7 +103,7 @@ class GameWindow(QGraphicsView):
         self.ai_timer = QTimer()
         self.ai_timer.timeout.connect(self.make_ai_decision)
         # AI podejmuje decyzję co 50ms
-        self.ai_timer.start(50)
+        self.ai_timer.start(100)
 
         # Generujemy początkową mapę (np. 30 rzędów w górę)
         self.generate_map_chunk(30)
@@ -117,6 +118,7 @@ class GameWindow(QGraphicsView):
         state = {
             "player": {"x": self.player.pos().x(), "y": self.player.pos().y()},
             "highest_generated_y": self.highest_generated_y,
+            "safe_x": self.safe_x,
             "difficulty": self.difficulty,
             "lanes": [{"y": lane.pos().y(), "type": lane.terrain_type} for lane in self.lanes],
             "cars": [{"y": car.pos().y(), "x": car.pos().x(), "speed": car.speed, "direction": car.direction} for car in
@@ -154,6 +156,7 @@ class GameWindow(QGraphicsView):
         # Odtwarzanie stanu
         self.difficulty = state["difficulty"]
         self.highest_generated_y = state["highest_generated_y"]
+        self.safe_x = state.get("safe_x", (SCENE_WIDTH // 2) // CELL_SIZE * CELL_SIZE)
         self.player.setPos(state["player"]["x"], state["player"]["y"])
 
         for l in state["lanes"]:
@@ -243,6 +246,9 @@ class GameWindow(QGraphicsView):
             # Przesuwamy wskaźnik budowy w górę
             self.highest_generated_y -= CELL_SIZE
             y = self.highest_generated_y
+            prev_safe_x = self.safe_x
+
+
 
             # Zawsze robimy pierwszych kilka rzędów bezpiecznych (trawa)
             if y > -CELL_SIZE * 3:
@@ -254,6 +260,11 @@ class GameWindow(QGraphicsView):
                     t_type = random.choice(["grass", "road"])
                 elif t_type == "road" and self.consecutive_roads >= self.max_consecutive_roads:
                     t_type = random.choice(["grass", "river"])
+                # pewna sciezka
+                shift = random.choice([-CELL_SIZE, 0, CELL_SIZE])
+                self.safe_x += shift
+                # ma sie trzymac w granicach
+                self.safe_x = max(0, min(SCENE_WIDTH - CELL_SIZE, self.safe_x))
             if t_type == "river":
                 self.consecutive_rivers += 1
                 self.consecutive_roads = 0
@@ -284,12 +295,47 @@ class GameWindow(QGraphicsView):
             elif t_type == "river":
 
                 if random.random() > 0.7:
-                    # tworzenie lilii
-                    for _ in range(random.randint(3, 8)):
+                    # safe lilia
+                    safe_lily = Lilypad(self.safe_x, y)
+                    self.scene.addItem(safe_lily)
+                    self.lilypads.append(safe_lily)
+
+                    if self.safe_x != prev_safe_x:
+                        safe_lily_bridge = Lilypad(prev_safe_x, y)
+                        self.scene.addItem(safe_lily_bridge)
+                        self.lilypads.append(safe_lily_bridge)
+
+                    trees_below_x = []
+                    for tree in self.trees:
+                        if tree.pos().y() == y + CELL_SIZE:
+                            trees_below_x.append(tree.pos().x())
+
+                    '''# tworzenie lilii
+                    for _ in range(random.randint(3, 7)):
                         lily_x = random.randint(0, (SCENE_WIDTH // CELL_SIZE) - 1) * CELL_SIZE
+                        # nie kladziemy tam gdzie juz jest
+                        if lily_x != self.safe_x and lily_x != prev_safe_x and lily_x not in trees_below_x:
+                            lily = Lilypad(lily_x, y)
+                            self.scene.addItem(lily)
+                            self.lilypads.append(lily)'''
+
+                    target_lily_count = random.randint(3, 7)
+                    all_possible_x = [col * CELL_SIZE for col in range(SCENE_WIDTH // CELL_SIZE)]
+
+                    available_x = []
+                    for x in all_possible_x:
+                        if x != self.safe_x and x != prev_safe_x and x not in trees_below_x:
+                            available_x.append(x)
+
+                    actual_lily_count = min(target_lily_count, len(available_x))
+
+                    chosen_x_positions = random.sample(available_x, actual_lily_count)
+
+                    for lily_x in chosen_x_positions:
                         lily = Lilypad(lily_x, y)
                         self.scene.addItem(lily)
                         self.lilypads.append(lily)
+
                 else:
                     # wymuszenie przeciwnego kierunku i predkosci kłód przy generowaniu rzek pod rząd
                     if self.consecutive_rivers > 1:
@@ -321,11 +367,20 @@ class GameWindow(QGraphicsView):
                     self.logs.append(log2)
 
             elif t_type == "grass" and y < -CELL_SIZE:
-                for i in range(random.randint(2,9)):
-                    tree_x=random.randint(0, (SCENE_WIDTH // CELL_SIZE) - 1) * CELL_SIZE
-                    tree = Tree(tree_x, y)
-                    self.scene.addItem(tree)
-                    self.trees.append(tree)
+                occupied_x = [self.safe_x, prev_safe_x]
+                # nie dodawaj drzew jesli pod spodem lub nad jest lilia
+                for lily in self.lilypads:
+                    if int(lily.pos().y()) == y - CELL_SIZE:
+                        occupied_x.append(int(lily.pos().x()))
+                    if int(lily.pos().y()) == y + CELL_SIZE:
+                        occupied_x.append(int(lily.pos().x()))
+
+                for i in range(random.randint(2, 7)):
+                    tree_x = random.randint(0, (SCENE_WIDTH // CELL_SIZE) - 1) * CELL_SIZE
+                    if tree_x not in occupied_x and (tree_x - CELL_SIZE) not in occupied_x and (tree_x + CELL_SIZE) not in occupied_x:
+                        tree = Tree(tree_x, y)
+                        self.scene.addItem(tree)
+                        self.trees.append(tree)
 
     def reset_game(self, start_replay=False):
         logger.log("Resetting game")
@@ -341,9 +396,10 @@ class GameWindow(QGraphicsView):
         logger.log("Removed instances")
 
         self.highest_generated_y = CELL_SIZE * 2
+        self.safe_x = (SCENE_WIDTH // 2) // CELL_SIZE * CELL_SIZE
         self.frame_counter = 0
         self.start_time = time.time()
-        self.difficulty = self.difficulty
+        self.difficulty = self.difficulty_initial
 
         if start_replay:
             self.is_replaying = True
@@ -500,11 +556,32 @@ class GameWindow(QGraphicsView):
                 logger.log("Player jumped into water")
                 self.reset_game()
 
+    def is_valid_target(self, target_x, target_y):
+        target_x = int(target_x)
+        target_y = int(target_y)
+
+        # 1. Najpierw sprawdzamy, czy w ogóle da się tam wejść (czy nie ma tam drzewa/wody/auta)
+        if not self.is_safe(target_x, target_y):
+            return False
+
+        # 2. --- UNIWERSALNY WYKRYWACZ ŚLEPYCH ZAUŁKÓW ---
+        # Symulujemy, jakie opcje ruchu miałby bot, GDYBY wszedł na to pole
+        up = self.is_safe(target_x, target_y - CELL_SIZE)
+        left = self.is_safe(target_x - CELL_SIZE, target_y)
+        right = self.is_safe(target_x + CELL_SIZE, target_y)
+
+        # Jeśli z tego pola NIE DA SIĘ wyjść do przodu ani w boki, to jest to pułapka!
+        # Bot odrzuci to pole jako "nieprawidłowe" i w ogóle na nie nie wejdzie.
+        if not (up or left or right):
+            return False
+
+        return True
+
     def is_safe(self, target_x, target_y):
         # Ograniczenie wyjścia poza ekran
         if target_x < 0 or target_x > SCENE_WIDTH - CELL_SIZE:
             return False
-        #kolizja z drzewem
+        # kolizja z drzewem
         for tree in self.trees:
             if tree.pos().y() == target_y and tree.pos().x() == target_x:
                 return False
@@ -526,8 +603,9 @@ class GameWindow(QGraphicsView):
                 if log.pos().y() == target_y:
                     log_left = log.pos().x()
                     log_right = log.pos().x() + log.pixmap().width()
-                    # Sprawdzamy, czy środek gracza wylądowałby na tej kłodzie
-                    if log_left <= player_center <= log_right:
+
+                    # [ZMIANA] Dodajemy 10 pikseli marginesu, żeby zniwelować mikro-ruchy kłody
+                    if log_left - 10 <= player_center <= log_right + 10:
                         return True
             return False  # Brak kłody = zle
 
@@ -549,9 +627,9 @@ class GameWindow(QGraphicsView):
                     else:  # Jedzie w lewo
                         if car_left - CELL_SIZE < player_right and car_right > player_left:
                             return False  # Zbyt blisko z prawej
-            return True  # Brak nadjeżdżających aut na tej kratce
+            return True
 
-        return True  # Trawa - zawsze bezpieczna
+        return True
 
     def make_ai_decision(self):
         if not self.ai_mode:
@@ -559,6 +637,7 @@ class GameWindow(QGraphicsView):
 
         px = round(self.player.pos().x() / CELL_SIZE) * CELL_SIZE
         py = self.player.pos().y()
+
         up_safe = self.is_safe(px, py - CELL_SIZE)
         down_safe = self.is_safe(px, py + CELL_SIZE)
         left_safe = self.is_safe(px - CELL_SIZE, py)
@@ -567,67 +646,108 @@ class GameWindow(QGraphicsView):
 
         current_terrain = "grass"
         for lane in self.lanes:
-            if lane.pos().y() == py:
+            if int(lane.pos().y()) == py:
                 current_terrain = lane.terrain_type
                 break
+
+        on_lilypad = False
+        if current_terrain == "river":
+            for lily in self.lilypads:
+                if int(lily.pos().y()) == py and int(lily.pos().x()) == px:
+                    on_lilypad = True
+                    break
 
         # PRIORYTET 1: EWAKUACJA
         danger_from_edge = False
         if current_terrain == "river":
-            # Jeśli zbliżamy się do krawędzi ekranu na rzece
             if px < CELL_SIZE * 1.5 or px > SCENE_WIDTH - CELL_SIZE * 2.5:
                 danger_from_edge = True
 
-        # Jeśli stoimy na ulicy i zagraża nam auto
         if not current_safe or danger_from_edge:
-            logger.log("AI: ZAGROŻENIE!")
             if up_safe:
                 self.handle_action("up")
-            elif down_safe:
-                self.handle_action("down")
-            # Jeśli tył i przód zajęte, uciekaj w bok do środka mapy
             elif left_safe and px > SCENE_WIDTH // 2:
                 self.handle_action("left")
             elif right_safe and px < SCENE_WIDTH // 2:
                 self.handle_action("right")
-            # Ostatnia deska ratunku
             elif left_safe:
                 self.handle_action("left")
             elif right_safe:
                 self.handle_action("right")
+            elif down_safe:
+                self.handle_action("down")
             return
 
-        # PRIORYTET 2: ŚRODKOWANIE
-        # Idealny środek uwzględniający kratki
+
+        # Szukanie ścieżki
+
+        target_gap_x = None
+        min_dist = 9999
+
+        for check_x in range(0, SCENE_WIDTH, CELL_SIZE):
+            if self.is_valid_target(check_x, py - CELL_SIZE):
+                dist = abs(check_x - px)
+
+                # Karę za zablokowany kierunek ignorujemy na kłodzie
+                if current_terrain != "river" or on_lilypad:
+                    if check_x < px and not left_safe:
+                        dist += 1000
+                    elif check_x > px and not right_safe:
+                        dist += 1000
+
+                if not self.is_safe(check_x, py - 2 * CELL_SIZE):
+                    dist += 500
+
+                if dist < min_dist:
+                    min_dist = dist
+                    target_gap_x = check_x
+
+        # PRIORYTET 2: RUCH W GÓRĘ
+        if up_safe and self.is_valid_target(px, py - CELL_SIZE):
+            if current_terrain == "river" and not on_lilypad and target_gap_x is not None and target_gap_x != px:
+                pass
+            else:
+                self.handle_action("up")
+                return
+
+        # PRIORYTET 3: RUCH W BOK DO CELU
+        if target_gap_x is not None:
+            if target_gap_x < px:
+                if left_safe:
+                    self.handle_action("left")
+                    return
+                elif (current_terrain != "river" or on_lilypad) and down_safe:
+                    self.handle_action("down")
+                    return
+                elif current_terrain == "river" and not on_lilypad:
+                    return
+
+            elif target_gap_x > px:
+                if right_safe:
+                    self.handle_action("right")
+                    return
+                elif (current_terrain != "river" or on_lilypad) and down_safe:
+                    self.handle_action("down")
+                    return
+                elif current_terrain == "river" and not on_lilypad:
+                    return
+
+        # PRIORYTET 4: ŚRODKOWANIE AWARYJNE
         center_x = (SCENE_WIDTH // 2) - (CELL_SIZE // 2)
-        dist_to_center = abs(px - center_x)
-
-        dist_left = abs((px - CELL_SIZE) - center_x)
-        dist_right = abs((px + CELL_SIZE) - center_x)
-        # Jeśli jesteśmy na trawie i nie jesteśmy na środku
-        if current_terrain == "grass":
-            # zeby nei chodził lewo-prawo w kółko bez sensu
-            if px > center_x and dist_left < dist_to_center and left_safe:
+        if px > center_x:
+            if left_safe:
                 self.handle_action("left")
-                return
-            # to samo dla prawej strony
-            elif px < center_x and dist_right < dist_to_center and right_safe:
+            elif right_safe:
                 self.handle_action("right")
-                return
-
-        # PRIORYTET 3: RUCH DO PRZODU
-        if up_safe:
-            self.handle_action("up")
-            return
-
-        # PRIORYTET 4: KROK W BOK PODCZAS CZEKANIA
-        # Jeśli nie możemy iść w górę to centrujemy
-        if px > center_x and dist_left < dist_to_center and left_safe:
-            self.handle_action("left")
-            return
-        elif px < center_x and dist_right < dist_to_center and right_safe:
-            self.handle_action("right")
-            return
+            elif down_safe:
+                self.handle_action("down")
+        else:
+            if right_safe:
+                self.handle_action("right")
+            elif left_safe:
+                self.handle_action("left")
+            elif down_safe:
+                self.handle_action("down")
 
 
 if __name__ == "__main__":
