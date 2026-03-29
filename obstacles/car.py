@@ -23,7 +23,7 @@ class Car(QGraphicsPixmapItem):
 
         self.debug_rect = QGraphicsRectItem(self.boundingRect(), self)
         # Czerwona ramka o grubości 2 pikseli
-        self.debug_rect.setPen(QPen(QColor(Qt.GlobalColor.red), 2))
+        self.debug_rect.setPen(QPen(QColor(Qt.GlobalColor.red), DEBUG_RECTANGLE_WIDTH))
         self.debug_rect.setVisible(False)
 
         logger.log("Car init (speed,direction,y_pos): " + str(self.speed) + " " + (

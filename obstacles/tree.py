@@ -9,5 +9,5 @@ class Tree(QGraphicsPixmapItem):
         self.setPos(x, y)
 
         self.debug_rect = QGraphicsRectItem(self.boundingRect(), self)
-        self.debug_rect.setPen(QPen(QColor(Qt.GlobalColor.red), 2))
+        self.debug_rect.setPen(QPen(QColor(Qt.GlobalColor.red), DEBUG_RECTANGLE_WIDTH))
         self.debug_rect.setVisible(False)

@@ -4,49 +4,7 @@ from obstacles.lilypad import Lilypad
 from obstacles.log import Log
 from obstacles.terrain import TerrainLane
 from obstacles.tree import Tree
-
-
-class Player(QGraphicsPixmapItem):
-    def __init__(self):
-        super().__init__()
-
-        pixmap = QPixmap("chicken.png")
-        scaled_pixmap = pixmap.scaled(CELL_SIZE, CELL_SIZE, Qt.AspectRatioMode.KeepAspectRatio)
-        self.setPixmap(scaled_pixmap)
-        self.setZValue(10)
-        self.reset_position()
-        logger.log("Player init")
-
-        self.debug_rect = QGraphicsRectItem(self.boundingRect(), self)
-        # Czerwona ramka o grubości 2 pikseli
-        self.debug_rect.setPen(QPen(QColor(Qt.GlobalColor.red), 2))
-        self.debug_rect.setVisible(False)
-
-    def reset_position(self):
-        # Startujemy zawsze z punktu (środek, 0)
-        start_x = (SCENE_WIDTH // 2) - (CELL_SIZE // 2)
-        start_y = 0
-        self.setPos(start_x, start_y)
-
-    def move_up(self):
-        snapped_x = round(self.pos().x() / CELL_SIZE) * CELL_SIZE
-        self.setPos(snapped_x, self.pos().y() - CELL_SIZE)
-        logger.log("Player move_up")
-
-    def move_down(self):
-        snapped_x = round(self.pos().x() / CELL_SIZE) * CELL_SIZE
-        self.setPos(snapped_x, self.pos().y() + CELL_SIZE)
-        logger.log("Player move_down")
-
-    def move_left(self):
-        snapped_x = round(self.pos().x() / CELL_SIZE) * CELL_SIZE
-        self.setPos(snapped_x - CELL_SIZE, self.pos().y())
-        logger.log("Player move_left")
-
-    def move_right(self):
-        snapped_x = round(self.pos().x() / CELL_SIZE) * CELL_SIZE
-        self.setPos(snapped_x + CELL_SIZE, self.pos().y())
-        logger.log("Player move_right")
+from player.player import Player
 
 
 class GameWindow(QGraphicsView):
@@ -66,7 +24,8 @@ class GameWindow(QGraphicsView):
         self.player = Player()
         self.scene.addItem(self.player)
         self.start_time = time.time()
-        self.time_to_increase_difficulty = 30  # Co ile sekund zwiększamy trudność
+        # Co ile sekund zwiększamy trudność
+        self.time_to_increase_difficulty = TIME_TO_INCREASE_DIFFICULTY
 
         self.cars = []
         self.logs = []
@@ -74,17 +33,17 @@ class GameWindow(QGraphicsView):
         self.trees = []
         self.lilypads = []
 
-        self.load_ahead_rows = 25
-        self.keep_behind_rows = 10
+        self.load_ahead_rows = FORWARD_ROWS
+        self.keep_behind_rows = BACKWARD_ROWS
 
         # Śledzi, na jakiej wysokości (Y) wygenerowaliśmy ostatni pas mapy
         self.highest_generated_y = CELL_SIZE * 2
         self.safe_x = (SCENE_WIDTH // 2) // CELL_SIZE * CELL_SIZE
 
         self.consecutive_rivers = 0
-        self.max_consecutive_rivers = 3
+        self.max_consecutive_rivers = MAX_CONSECUTIVE_RIVERS
         self.consecutive_roads = 0
-        self.max_consecutive_roads = 5
+        self.max_consecutive_roads = MAX_CONSECUTIVE_ROADS
         self.prev_river_direction = 1
         self.prev_river_speed = 2
 
@@ -102,12 +61,12 @@ class GameWindow(QGraphicsView):
         self.ai_mode = False
         self.ai_timer = QTimer()
         self.ai_timer.timeout.connect(self.make_ai_decision)
-        # AI podejmuje decyzję co 50ms
-        self.ai_timer.start(100)
+        # Decyzja co 100ms
+        self.ai_timer.start(AI_TIMER_MS)
 
-        # Generujemy początkową mapę (np. 30 rzędów w górę)
-        self.generate_map_chunk(30)
-        # Dorób od razu okno świata w zależności od pozycji gracza
+        # Generujemy początkową mapę
+        self.generate_map_chunk(INITIAL_CHUNK_LOAD_SIZE)
+        # System usuwania itp
         self.manage_world()
 
         self.timer = QTimer()
@@ -251,7 +210,7 @@ class GameWindow(QGraphicsView):
 
 
             # Zawsze robimy pierwszych kilka rzędów bezpiecznych (trawa)
-            if y > -CELL_SIZE * 3:
+            if y > -CELL_SIZE * INITIAL_SAFE_ROW_COUNT:
                 t_type = "grass"
             else:
                 t_type = random.choice(terrain_types)
@@ -283,11 +242,11 @@ class GameWindow(QGraphicsView):
             # Dodajemy przeszkody w zależności od typu
             if t_type == "road":
                 if self.difficulty == "easy":
-                    speed = random.randrange(1, 4)
+                    speed = random.randrange(CAR_EASY_MIN_SPEED, CAR_EASY_MAX_SPEED)
                 elif self.difficulty == "medium":
-                    speed = random.randrange(2, 9)
+                    speed = random.randrange(CAR_MEDIUM_MIN_SPEED, CAR_MEDIUM_MAX_SPEED)
                 else:
-                    speed = random.randrange(4, 13)
+                    speed = random.randrange(CAR_HARD_MIN_SPEED, CAR_HARD_MAX_SPEED)
                 car = Car(y, speed)
                 self.scene.addItem(car)
                 self.cars.append(car)
@@ -319,7 +278,7 @@ class GameWindow(QGraphicsView):
                             self.scene.addItem(lily)
                             self.lilypads.append(lily)'''
 
-                    target_lily_count = random.randint(3, 7)
+                    target_lily_count = random.randint(LILY_MIN_TRY_COUNT, LILY_MAX_TRY_COUNT)
                     all_possible_x = [col * CELL_SIZE for col in range(SCENE_WIDTH // CELL_SIZE)]
 
                     available_x = []
@@ -341,21 +300,21 @@ class GameWindow(QGraphicsView):
                     if self.consecutive_rivers > 1:
                         direction = self.prev_river_direction * -1
                         if self.difficulty == "easy":
-                            speeds = [s for s in range(1, 4) if s != self.prev_river_direction]
+                            speeds = [s for s in range(LOG_EASY_MIN_SPEED, LOG_EASY_MAX_SPEED) if s != self.prev_river_direction]
                         else:
-                            speeds = [s for s in range(2, 9) if s != self.prev_river_direction]
+                            speeds = [s for s in range(LOG_MEDIUM_HARD_MIN_SPEED, LOG_MEDIUM_HARD_MAX_SPEED) if s != self.prev_river_direction]
                         speed = random.choice(speeds) if speeds else 2
                     else:
                         direction = random.choice([1, -1])
                         if self.difficulty == "easy":
-                            speed = random.randrange(1, 3)
+                            speed = random.randrange(LOG_EASY_MIN_SPEED, LOG_EASY_MAX_SPEED)
                         else:
-                            speed = random.randrange(2, 9)
+                            speed = random.randrange(LOG_MEDIUM_HARD_MIN_SPEED, LOG_MEDIUM_HARD_MAX_SPEED)
 
                     self.prev_river_direction = direction
                     self.prev_river_speed = speed
 
-                    # Tworzymy 2 kłody na jednym pasie rzeki dla łatwiejszej gry
+                    # Tworzymy 2 kłody na jednym pasie rzeki
                     log1 = Log(y, speed, direction)
                     log2 = Log(y, speed, direction)
                     # Rozsuwamy je od siebie
@@ -375,7 +334,7 @@ class GameWindow(QGraphicsView):
                     if int(lily.pos().y()) == y + CELL_SIZE:
                         occupied_x.append(int(lily.pos().x()))
 
-                for i in range(random.randint(2, 7)):
+                for i in range(random.randint(TREE_MIN_TRY_COUNT, TREE_MAX_TRY_COUNT)):
                     tree_x = random.randint(0, (SCENE_WIDTH // CELL_SIZE) - 1) * CELL_SIZE
                     if tree_x not in occupied_x and (tree_x - CELL_SIZE) not in occupied_x and (tree_x + CELL_SIZE) not in occupied_x:
                         tree = Tree(tree_x, y)
@@ -425,8 +384,8 @@ class GameWindow(QGraphicsView):
         top_target_y = int((player_y - (self.load_ahead_rows * CELL_SIZE)) // CELL_SIZE) * CELL_SIZE
         while self.highest_generated_y > top_target_y:
             # 5 rzedów zeby nie bylo za czesto duplikatów rodzajów terenu koło siebie
-            self.generate_map_chunk(5)
-            logger.log("Generating missing map ahead")
+            self.generate_map_chunk(GENERATE_MISSING_MAP_COUNT)
+            logger.log("Generated missing map ahead")
 
         # usuń elementy, które są z tylu
         keep_y = int((player_y + (self.keep_behind_rows * CELL_SIZE)) // CELL_SIZE) * CELL_SIZE
@@ -682,7 +641,7 @@ class GameWindow(QGraphicsView):
         # Szukanie ścieżki
 
         target_gap_x = None
-        min_dist = 9999
+        min_dist = 999999999999
 
         for check_x in range(0, SCENE_WIDTH, CELL_SIZE):
             if self.is_valid_target(check_x, py - CELL_SIZE):
