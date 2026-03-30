@@ -1,5 +1,6 @@
 from libs.libs import *
 
+
 class Player(QGraphicsPixmapItem):
     def __init__(self):
         super().__init__()

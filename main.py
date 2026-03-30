@@ -10,6 +10,7 @@ from player.player import Player
 class GameWindow(QGraphicsView):
     def __init__(self, difficulty):
         super().__init__()
+        self.config = self.load_configuration("config.json")
         self.scene = QGraphicsScene()
         self.setScene(self.scene)
 
@@ -25,7 +26,7 @@ class GameWindow(QGraphicsView):
         self.scene.addItem(self.player)
         self.start_time = time.time()
         # Co ile sekund zwiększamy trudność
-        self.time_to_increase_difficulty = TIME_TO_INCREASE_DIFFICULTY
+        self.time_to_increase_difficulty = self.config["time_to_increase_difficulty"]
 
         self.cars = []
         self.logs = []
@@ -33,17 +34,18 @@ class GameWindow(QGraphicsView):
         self.trees = []
         self.lilypads = []
 
-        self.load_ahead_rows = FORWARD_ROWS
-        self.keep_behind_rows = BACKWARD_ROWS
+        self.load_ahead_rows = self.config["forward_rows"]
+        self.keep_behind_rows = self.config["backward_rows"]
 
         # Śledzi, na jakiej wysokości (Y) wygenerowaliśmy ostatni pas mapy
         self.highest_generated_y = CELL_SIZE * 2
         self.safe_x = (SCENE_WIDTH // 2) // CELL_SIZE * CELL_SIZE
+        self.map_layout_index = 0
 
         self.consecutive_rivers = 0
-        self.max_consecutive_rivers = MAX_CONSECUTIVE_RIVERS
+        self.max_consecutive_rivers = self.config["max_consecutive_rivers"]
         self.consecutive_roads = 0
-        self.max_consecutive_roads = MAX_CONSECUTIVE_ROADS
+        self.max_consecutive_roads = self.config["max_consecutive_roads"]
         self.prev_river_direction = 1
         self.prev_river_speed = 2
 
@@ -61,17 +63,69 @@ class GameWindow(QGraphicsView):
         self.ai_mode = False
         self.ai_timer = QTimer()
         self.ai_timer.timeout.connect(self.make_ai_decision)
-        # Decyzja co 100ms
-        self.ai_timer.start(AI_TIMER_MS)
+        # Decyzja co 50ms
+        self.ai_timer.start(self.config["ai_timer_ms"])
 
         # Generujemy początkową mapę
-        self.generate_map_chunk(INITIAL_CHUNK_LOAD_SIZE)
+        self.generate_map_chunk(self.config["initial_chunk_load_size"])
         # System usuwania itp
         self.manage_world()
 
         self.timer = QTimer()
         self.timer.timeout.connect(self.game_loop)
         self.timer.start(16)
+
+    def load_configuration(self, filepath="config.json"):
+        # domyslne
+        default_config = {
+            "time_to_increase_difficulty": 30,
+            "forward_rows": 25,
+            "backward_rows": 10,
+            "max_consecutive_rivers": 3,
+            "max_consecutive_roads": 5,
+            "ai_timer_ms": 50,
+            "initial_chunk_load_size": 20,
+            "generate_missing_map_count": 5,
+            "initial_safe_row_count": 3,
+            "car_easy_min_speed": 1,
+            "car_easy_max_speed": 4,
+            "car_medium_min_speed": 2,
+            "car_medium_max_speed": 9,
+            "car_hard_min_speed": 4,
+            "car_hard_max_speed": 13,
+            "log_easy_min_speed": 1,
+            "log_easy_max_speed": 4,
+            "log_medium_hard_min_speed": 2,
+            "log_medium_hard_max_speed": 9,
+            "lily_min_try_count": 3,
+            "lily_max_try_count": 7,
+            "tree_min_try_count": 2,
+            "tree_max_try_count": 7,
+            "use_custom_map": False,
+            "custom_map_layout": ["grass", "grass", "road", "road", "road", "grass", "river", "river", "river", "grass"],
+            "log_spawn_chance": 0.7
+        }
+
+        config = default_config.copy()
+
+        # wczyttywanie
+        try:
+            if os.path.exists(filepath):
+                with open(filepath, "r") as f:
+                    user_config = json.load(f)
+                for key, value in user_config.items():
+                    # Walidacja: klucz musi istnieć ORAZ typ zmiennej musi się zgadzać (np. int == int)
+                    if key in config and isinstance(value, type(config[key])):
+                        config[key] = value
+                    else:
+                        logger.log(f"Config - Nieprawidłowy klucz lub typ danych dla '{key}'")
+                logger.log("Wczytano konfigurację z pliku")
+            else:
+                logger.log("Brak pliku config.json.")
+        except Exception as e:
+            logger.log(f"Błąd wczytywania config.json: {e}.")
+
+        return config
 
     def save_game(self):
         state = {
@@ -202,28 +256,31 @@ class GameWindow(QGraphicsView):
             logger.log("Increasing difficulty level: " + self.difficulty)
 
         for _ in range(rows):
-            # Przesuwamy wskaźnik budowy w górę
             self.highest_generated_y -= CELL_SIZE
             y = self.highest_generated_y
             prev_safe_x = self.safe_x
 
-
-
-            # Zawsze robimy pierwszych kilka rzędów bezpiecznych (trawa)
-            if y > -CELL_SIZE * INITIAL_SAFE_ROW_COUNT:
-                t_type = "grass"
+            if self.config.get("use_custom_map", False):
+                layout = self.config.get("custom_map_layout", ["grass"])
+                t_type = layout[self.map_layout_index % len(layout)]
+                self.map_layout_index += 1
             else:
-                t_type = random.choice(terrain_types)
-                # Ograniczenie nie wiadomo ile spawnu pod rząd
-                if t_type == "river" and self.consecutive_rivers >= self.max_consecutive_rivers:
-                    t_type = random.choice(["grass", "road"])
-                elif t_type == "road" and self.consecutive_roads >= self.max_consecutive_roads:
-                    t_type = random.choice(["grass", "river"])
-                # pewna sciezka
+                # Losowy generator
+                if y > -CELL_SIZE * self.config["initial_safe_row_count"]:
+                    t_type = "grass"
+                else:
+                    t_type = random.choice(terrain_types)
+                    if t_type == "river" and self.consecutive_rivers >= self.max_consecutive_rivers:
+                        t_type = random.choice(["grass", "road"])
+                    elif t_type == "road" and self.consecutive_roads >= self.max_consecutive_roads:
+                        t_type = random.choice(["grass", "river"])
+
+           # bezpieczna sciezka
+            if y <= -CELL_SIZE * self.config["initial_safe_row_count"]:
                 shift = random.choice([-CELL_SIZE, 0, CELL_SIZE])
                 self.safe_x += shift
-                # ma sie trzymac w granicach
                 self.safe_x = max(0, min(SCENE_WIDTH - CELL_SIZE, self.safe_x))
+
             if t_type == "river":
                 self.consecutive_rivers += 1
                 self.consecutive_roads = 0
@@ -235,32 +292,33 @@ class GameWindow(QGraphicsView):
                 self.consecutive_roads = 0
 
             # Rysujemy tło pasa
-            lane = TerrainLane(y, t_type)
+            lane = EntityFactory.create_entity("lane", y=y, terrain_type=t_type)
             self.scene.addItem(lane)
             self.lanes.append(lane)
 
             # Dodajemy przeszkody w zależności od typu
             if t_type == "road":
                 if self.difficulty == "easy":
-                    speed = random.randrange(CAR_EASY_MIN_SPEED, CAR_EASY_MAX_SPEED)
+                    speed = random.randrange(self.config["car_easy_min_speed"], self.config["car_easy_max_speed"])
                 elif self.difficulty == "medium":
-                    speed = random.randrange(CAR_MEDIUM_MIN_SPEED, CAR_MEDIUM_MAX_SPEED)
+                    speed = random.randrange(self.config["car_medium_min_speed"], self.config["car_medium_max_speed"])
                 else:
-                    speed = random.randrange(CAR_HARD_MIN_SPEED, CAR_HARD_MAX_SPEED)
-                car = Car(y, speed)
+                    speed = random.randrange(self.config["car_hard_min_speed"], self.config["car_hard_max_speed"])
+                car = EntityFactory.create_entity("car", y=y, speed=speed)
                 self.scene.addItem(car)
                 self.cars.append(car)
 
             elif t_type == "river":
 
-                if random.random() > 0.7:
+                if random.random() > self.config["log_spawn_chance"]:
                     # safe lilia
-                    safe_lily = Lilypad(self.safe_x, y)
+                    safe_lily = EntityFactory.create_entity("lilypad", x=self.safe_x, y=y)
                     self.scene.addItem(safe_lily)
                     self.lilypads.append(safe_lily)
 
                     if self.safe_x != prev_safe_x:
                         safe_lily_bridge = Lilypad(prev_safe_x, y)
+                        safe_lily_bridge = EntityFactory.create_entity("lilypad", x=prev_safe_x, y=y)
                         self.scene.addItem(safe_lily_bridge)
                         self.lilypads.append(safe_lily_bridge)
 
@@ -278,7 +336,7 @@ class GameWindow(QGraphicsView):
                             self.scene.addItem(lily)
                             self.lilypads.append(lily)'''
 
-                    target_lily_count = random.randint(LILY_MIN_TRY_COUNT, LILY_MAX_TRY_COUNT)
+                    target_lily_count = random.randint(self.config["lily_min_try_count"], self.config["lily_max_try_count"])
                     all_possible_x = [col * CELL_SIZE for col in range(SCENE_WIDTH // CELL_SIZE)]
 
                     available_x = []
@@ -291,7 +349,7 @@ class GameWindow(QGraphicsView):
                     chosen_x_positions = random.sample(available_x, actual_lily_count)
 
                     for lily_x in chosen_x_positions:
-                        lily = Lilypad(lily_x, y)
+                        lily = EntityFactory.create_entity("lilypad", x=lily_x, y=y)
                         self.scene.addItem(lily)
                         self.lilypads.append(lily)
 
@@ -300,23 +358,23 @@ class GameWindow(QGraphicsView):
                     if self.consecutive_rivers > 1:
                         direction = self.prev_river_direction * -1
                         if self.difficulty == "easy":
-                            speeds = [s for s in range(LOG_EASY_MIN_SPEED, LOG_EASY_MAX_SPEED) if s != self.prev_river_direction]
+                            speeds = [s for s in range(self.config["log_easy_min_speed"], self.config["log_easy_max_speed"]) if s != self.prev_river_direction]
                         else:
-                            speeds = [s for s in range(LOG_MEDIUM_HARD_MIN_SPEED, LOG_MEDIUM_HARD_MAX_SPEED) if s != self.prev_river_direction]
+                            speeds = [s for s in range(self.config["log_medium_hard_min_speed"], self.config["log_medium_hard_max_speed"]) if s != self.prev_river_direction]
                         speed = random.choice(speeds) if speeds else 2
                     else:
                         direction = random.choice([1, -1])
                         if self.difficulty == "easy":
-                            speed = random.randrange(LOG_EASY_MIN_SPEED, LOG_EASY_MAX_SPEED)
+                            speed = random.randrange(self.config["log_easy_min_speed"], self.config["log_easy_max_speed"])
                         else:
-                            speed = random.randrange(LOG_MEDIUM_HARD_MIN_SPEED, LOG_MEDIUM_HARD_MAX_SPEED)
+                            speed = random.randrange(self.config["log_medium_hard_min_speed"], self.config["log_medium_hard_max_speed"])
 
                     self.prev_river_direction = direction
                     self.prev_river_speed = speed
 
                     # Tworzymy 2 kłody na jednym pasie rzeki
-                    log1 = Log(y, speed, direction)
-                    log2 = Log(y, speed, direction)
+                    log1 = EntityFactory.create_entity("log", y=y, speed=speed, direction=direction)
+                    log2 = EntityFactory.create_entity("log", y=y, speed=speed, direction=direction)
                     # Rozsuwamy je od siebie
                     log2.setPos(log1.pos().x() + (SCENE_WIDTH // 2) + 50 * direction * random.random(), y)
 
@@ -334,10 +392,10 @@ class GameWindow(QGraphicsView):
                     if int(lily.pos().y()) == y + CELL_SIZE:
                         occupied_x.append(int(lily.pos().x()))
 
-                for i in range(random.randint(TREE_MIN_TRY_COUNT, TREE_MAX_TRY_COUNT)):
+                for i in range(random.randint(self.config["tree_min_try_count"], self.config["tree_max_try_count"])):
                     tree_x = random.randint(0, (SCENE_WIDTH // CELL_SIZE) - 1) * CELL_SIZE
                     if tree_x not in occupied_x and (tree_x - CELL_SIZE) not in occupied_x and (tree_x + CELL_SIZE) not in occupied_x:
-                        tree = Tree(tree_x, y)
+                        tree = EntityFactory.create_entity("tree", x=tree_x, y=y)
                         self.scene.addItem(tree)
                         self.trees.append(tree)
 
@@ -356,6 +414,7 @@ class GameWindow(QGraphicsView):
 
         self.highest_generated_y = CELL_SIZE * 2
         self.safe_x = (SCENE_WIDTH // 2) // CELL_SIZE * CELL_SIZE
+        self.map_layout_index = 0
         self.frame_counter = 0
         self.start_time = time.time()
         self.difficulty = self.difficulty_initial
@@ -384,7 +443,7 @@ class GameWindow(QGraphicsView):
         top_target_y = int((player_y - (self.load_ahead_rows * CELL_SIZE)) // CELL_SIZE) * CELL_SIZE
         while self.highest_generated_y > top_target_y:
             # 5 rzedów zeby nie bylo za czesto duplikatów rodzajów terenu koło siebie
-            self.generate_map_chunk(GENERATE_MISSING_MAP_COUNT)
+            self.generate_map_chunk(self.config["generate_missing_map_count"])
             logger.log("Generated missing map ahead")
 
         # usuń elementy, które są z tylu
@@ -451,6 +510,18 @@ class GameWindow(QGraphicsView):
             if not self.is_replaying and len(self.action_log) > 0:
                 self.saved_action_log = self.action_log.copy()
                 self.reset_game(start_replay=True)
+        elif event.key() == Qt.Key.Key_F5:
+            logger.log("Wywołano Hot Reload konfiguracji")
+            # Wczytanie nowych parametrów z pliku
+            self.config = self.load_configuration("config.json")
+
+            # Aktualizacja systemów w tle
+            self.ai_timer.setInterval(self.config.get("ai_timer_ms", 100))
+            self.max_consecutive_rivers = self.config.get("max_consecutive_rivers", 3)
+            self.max_consecutive_roads = self.config.get("max_consecutive_roads", 5)
+            self.time_to_increase_difficulty = self.config.get("time_to_increase_difficulty", 30)
+
+            self.reset_game()
 
         # organiczenie żeby kurczak nie uciekł poza ekran
         if self.player.pos().x() < 0:
@@ -691,7 +762,7 @@ class GameWindow(QGraphicsView):
                 elif current_terrain == "river" and not on_lilypad:
                     return
 
-        # PRIORYTET 4: ŚRODKOWANIE AWARYJNE
+        # PRIORYTET 4: ŚRODKOWANIE
         center_x = (SCENE_WIDTH // 2) - (CELL_SIZE // 2)
         if px > center_x:
             if left_safe:
